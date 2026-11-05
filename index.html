@@ -62,6 +62,7 @@
   .s-WAITLIST::before { background: var(--warn); }
   .s-FULL, .s-CHECKING { color: var(--muted); }
   .s-CHECKING::before { background: var(--line-strong); }
+  .stale { color: var(--subtle); }
 
   .gauge { display: flex; align-items: center; gap: 10px; }
   .track { width: 72px; height: 6px; background: var(--line); border-radius: var(--r-sm); overflow: hidden; }
@@ -112,7 +113,9 @@ function row(s) {
     <td class="when">${when}</td>
     <td class="num">${seats}</td>
     <td class="num">${wl}</td>
-    <td><span class="status s-${s.status}">${LABEL[s.status]}${s.status === "OPEN" ? ` · ${s.open}` : ""}</span></td>
+    <td><span class="status s-${s.status}" ${s.error ? `title="${esc(s.error)}"` : ""}>${
+      !known && s.error ? "No data yet" : LABEL[s.status] + (s.status === "OPEN" ? ` · ${s.open}` : "")
+    }</span>${known && s.error ? ` <span class="stale">· retrying</span>` : ""}</td>
   </tr>`;
 }
 
@@ -132,24 +135,29 @@ function course(c) {
   </section>`;
 }
 
-async function load() {
-  try {
-    const res = await fetch("/api/state");
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.error);
-    $("term").textContent = `· ${SEASON[d.term.slice(4)] || ""} ${d.term.slice(0, 4)}`;
-    $("alerts").textContent = d.topic ? `Alerts to ntfy.sh/${d.topic}` : "";
-    $("checked").textContent = d.lastCheck
-      ? `Checked ${new Date(d.lastCheck * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} · every ${d.interval} s`
-      : "First check running";
-    $("banner").innerHTML = d.topic ? "" :
-      `<div class="banner">No phone alerts yet. Add your ntfy topic as "ntfy_topic" in config.json and restart the server.</div>`;
-    $("courses").innerHTML = d.courses.length ? d.courses.map(course).join("")
-      : `<p class="empty">No courses yet. Type one above, like CS 1332, to start watching its sections.</p>`;
-  } catch (e) {
-    $("banner").innerHTML = `<div class="banner bad">${esc(e.message || "Server not reachable. Is server.py running?")}</div>`;
+function render(d) {
+  if (d.error) {
+    $("banner").innerHTML = `<div class="banner bad">${esc(d.error)}</div>`;
+    return;
   }
+  $("term").textContent = `· ${SEASON[d.term.slice(4)] || ""} ${d.term.slice(0, 4)}`;
+  $("alerts").textContent = d.topic ? `Alerts to ntfy.sh/${d.topic}` : "";
+  $("checked").textContent = d.lastCheck
+    ? `Checked ${new Date(d.lastCheck * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` +
+      ` in ${d.checkSeconds} s · every ${d.interval} s · ${d.parallel} at a time`
+    : "First check running";
+  $("banner").innerHTML = d.topic ? "" :
+    `<div class="banner">No phone alerts yet. Add your ntfy topic as "ntfy_topic" in config.json and restart the server.</div>`;
+  $("courses").innerHTML = d.courses.length ? d.courses.map(course).join("")
+    : `<p class="empty">No courses yet. Type one above, like CS 1332, to start watching its sections.</p>`;
 }
+
+// Live updates: the server pushes a snapshot on every change. EventSource reconnects by itself.
+const events = new EventSource("/api/events");
+events.onmessage = e => render(JSON.parse(e.data));
+events.onerror = () => {
+  $("banner").innerHTML = `<div class="banner bad">Lost connection to server.py. Reconnecting…</div>`;
+};
 
 async function edit(method, id) {
   const res = await fetch("/api/courses", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
@@ -161,7 +169,7 @@ $("add").addEventListener("submit", async e => {
   e.preventDefault();
   const id = $("course").value.trim();
   say("Looking up " + id + "…");
-  try { await edit("POST", id); $("course").value = ""; say("Tracking " + id.toUpperCase()); load(); setTimeout(load, 3000); }
+  try { await edit("POST", id); $("course").value = ""; say("Tracking " + id.toUpperCase()); }
   catch (err) { say(err.message, true); }
 });
 
@@ -170,12 +178,10 @@ $("courses").addEventListener("click", async e => {
   if (crn) {
     try { await navigator.clipboard.writeText(crn); say(`Copied CRN ${crn}`); } catch { say(`CRN ${crn}`); }
   } else if (rm) {
-    try { await edit("DELETE", rm); say(`Stopped tracking ${rm}`); load(); } catch (err) { say(err.message, true); }
+    try { await edit("DELETE", rm); say(`Stopped tracking ${rm}`); } catch (err) { say(err.message, true); }
   }
 });
 
-load();
-setInterval(load, 10000);
 </script>
 </body>
 </html>
