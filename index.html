@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GT Seat Notifier</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  /* Harbor design system tokens (go2-platform/docs/DESIGN_SYSTEM.md). Dark only. */
+  :root {
+    color-scheme: dark;
+    --bg: #09090B; --panel: #18181B; --sunken: #111113;
+    --line: #27272A; --line-strong: #3F3F46;
+    --subtle: #71717A; --muted: #A1A1AA; --text: #E4E4E7;
+    --ok: #10B981; --warn: #F59E0B; --stop: #EF4444;
+    --r-sm: 4px; --r-md: 6px;
+    --sans: "Geist", system-ui, sans-serif;
+    --mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+  main { max-width: 880px; margin: 0 auto; padding: 24px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left)); }
+  .mono, td.num, .crn { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px;
+           padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 15px; font-weight: 500; }
+  h1 span { color: var(--muted); font-weight: 400; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 13px; }
+
+  form { display: flex; gap: 8px; padding-block: 16px; border-bottom: 1px solid var(--line); }
+  input { flex: 1; min-width: 0; max-width: 240px; padding: 6px 10px; background: var(--sunken); color: var(--text);
+          border: 1px solid var(--line); border-radius: var(--r-md); font: 14px var(--mono); }
+  input::placeholder { color: var(--subtle); }
+  button { padding: 6px 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line);
+           border-radius: var(--r-md); font: 500 13px var(--sans); cursor: pointer; transition: border-color 150ms; }
+  button:hover { border-color: var(--line-strong); }
+  :focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+  .msg { align-self: center; font-size: 13px; color: var(--muted); }
+  .msg.err { color: var(--stop); }
+
+  section { padding-block: 16px; border-bottom: 1px solid var(--line); }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 10px; }
+  .head h2 { margin: 0; font-size: 14px; font-weight: 500; }
+  .head .name { color: var(--muted); flex: 1; min-width: 0; }
+  .head button { padding: 2px 8px; font-size: 12px; color: var(--muted); }
+
+  .well { overflow-x: auto; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-md); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 400; color: var(--subtle); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.when { color: var(--muted); }
+  td.when div + div { margin-top: 2px; }
+  .crn { background: none; border: 0; padding: 0; color: var(--text); font-size: 13px; font-weight: 400; }
+  .crn:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  .status { display: inline-flex; align-items: center; gap: 6px; }
+  .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); }
+  .s-OPEN::before { background: var(--ok); }
+  .s-WAITLIST::before { background: var(--warn); }
+  .s-FULL, .s-CHECKING { color: var(--muted); }
+  .s-CHECKING::before { background: var(--line-strong); }
+
+  .gauge { display: flex; align-items: center; gap: 10px; }
+  .track { width: 72px; height: 6px; background: var(--line); border-radius: var(--r-sm); overflow: hidden; }
+  .fill { height: 100%; background: var(--line-strong); }
+  .g-OPEN .fill { background: var(--ok); }
+  .g-WAITLIST .fill { background: var(--warn); }
+
+  .empty { padding: 32px 0; color: var(--muted); }
+  .banner { margin-top: 16px; padding: 8px 12px; border-radius: var(--r-md); background: #451A03; color: #FCD34D; font-size: 13px; }
+  .banner.bad { background: #450A0A; color: #FCA5A5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>GT Seat Notifier <span id="term"></span></h1>
+    <div class="meta"><span id="alerts"></span><span id="checked" class="mono"></span></div>
+  </header>
+  <div id="banner"></div>
+  <form id="add">
+    <input id="course" placeholder="CS 1332" aria-label="Course" autocomplete="off" required>
+    <button>Track course</button>
+    <span id="msg" class="msg" role="status"></span>
+  </form>
+  <div id="courses"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const SEASON = { "02": "Spring", "05": "Summer", "08": "Fall" };
+const LABEL = { OPEN: "Open", WAITLIST: "Waitlist", FULL: "Full", CHECKING: "Checking" };
+
+function say(text, err) { $("msg").textContent = text; $("msg").className = err ? "msg err" : "msg"; }
+
+function row(s) {
+  const when = s.meetings.length
+    ? s.meetings.map(m => `<div>${esc(m.days)} ${esc(m.time)}${m.room ? " · " + esc(m.room) : ""}</div>`).join("")
+    : "TBA";
+  const known = s.status !== "CHECKING";
+  const pct = known && s.max ? Math.min(100, (s.enrolled / s.max) * 100) : 0;
+  const seats = known
+    ? `<div class="gauge g-${s.status}"><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${s.enrolled}/${s.max}</span></div>`
+    : "–";
+  const wl = known && s.wlCap ? `${s.wlCap - s.wlOpen}/${s.wlCap}` : "–";
+  return `<tr>
+    <td>${esc(s.id)}</td>
+    <td><button class="crn" data-crn="${esc(s.crn)}" title="Copy CRN">${esc(s.crn)}</button></td>
+    <td class="when">${when}</td>
+    <td class="num">${seats}</td>
+    <td class="num">${wl}</td>
+    <td><span class="status s-${s.status}">${LABEL[s.status]}${s.status === "OPEN" ? ` · ${s.open}` : ""}</span></td>
+  </tr>`;
+}
+
+function course(c) {
+  const n = st => c.sections.filter(s => s.status === st).length;
+  const counts = [["OPEN", "open"], ["WAITLIST", "waitlist"], ["FULL", "full"]]
+    .filter(([st]) => n(st)).map(([st, w]) => `${n(st)} ${w}`).join(" · ");
+  return `<section>
+    <div class="head">
+      <h2>${esc(c.id)}</h2>
+      <span class="name">${esc(c.name || "Not offered this term")}${counts ? " · " + counts : ""}</span>
+      <button data-remove="${esc(c.id)}">Remove</button>
+    </div>
+    ${c.sections.length ? `<div class="well"><table>
+      <thead><tr><th>Section</th><th>CRN</th><th>When</th><th>Enrolled</th><th>Waitlist</th><th>Status</th></tr></thead>
+      <tbody>${c.sections.map(row).join("")}</tbody></table></div>` : ""}
+  </section>`;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/state");
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error);
+    $("term").textContent = `· ${SEASON[d.term.slice(4)] || ""} ${d.term.slice(0, 4)}`;
+    $("alerts").textContent = d.topic ? `Alerts to ntfy.sh/${d.topic}` : "";
+    $("checked").textContent = d.lastCheck
+      ? `Checked ${new Date(d.lastCheck * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })} · every ${d.interval} s`
+      : "First check running";
+    $("banner").innerHTML = d.topic ? "" :
+      `<div class="banner">No phone alerts yet. Add your ntfy topic as "ntfy_topic" in config.json and restart the server.</div>`;
+    $("courses").innerHTML = d.courses.length ? d.courses.map(course).join("")
+      : `<p class="empty">No courses yet. Type one above, like CS 1332, to start watching its sections.</p>`;
+  } catch (e) {
+    $("banner").innerHTML = `<div class="banner bad">${esc(e.message || "Server not reachable. Is server.py running?")}</div>`;
+  }
+}
+
+async function edit(method, id) {
+  const res = await fetch("/api/courses", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || "Something went wrong");
+}
+
+$("add").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = $("course").value.trim();
+  say("Looking up " + id + "…");
+  try { await edit("POST", id); $("course").value = ""; say("Tracking " + id.toUpperCase()); load(); setTimeout(load, 3000); }
+  catch (err) { say(err.message, true); }
+});
+
+$("courses").addEventListener("click", async e => {
+  const crn = e.target.dataset.crn, rm = e.target.dataset.remove;
+  if (crn) {
+    try { await navigator.clipboard.writeText(crn); say(`Copied CRN ${crn}`); } catch { say(`CRN ${crn}`); }
+  } else if (rm) {
+    try { await edit("DELETE", rm); say(`Stopped tracking ${rm}`); load(); } catch (err) { say(err.message, true); }
+  }
+});
+
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>
