@@ -1,6 +1,5 @@
-import type { Course, Section, Settings } from '@/types'
+import type { Course, Settings } from '@/types'
 
-// const BASE = 'https://classes-o2nm.onrender.com'
 const BASE = 'http://localhost:8080'
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -16,19 +15,14 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getCourses: () => req<Course[]>('/courses'),
 
-  addCourse: (body: { crn: string; term: string; name: string }) =>
+  addCourse: (body: { courseId: string; season: string }) =>
     req<Course>('/courses', { method: 'POST', body: JSON.stringify(body) }),
 
-  deleteCourse: (crn: string) =>
-    req<{ ok: boolean }>(`/courses/${crn}`, { method: 'DELETE' }),
+  deleteCourse: (courseId: string) =>
+    req<{ ok: boolean }>(`/courses/${encodeURIComponent(courseId)}`, { method: 'DELETE' }),
 
   getSettings: () => req<Settings>('/settings'),
 
   saveSettings: (settings: Partial<Settings>) =>
     req<Settings>('/settings', { method: 'POST', body: JSON.stringify(settings) }),
-
-  getSections: (term: string, course: string) =>
-    req<{ sections: Section[]; warnings: string[] }>(
-      `/sections?term=${encodeURIComponent(term)}&course=${encodeURIComponent(course)}`
-    ),
 }

@@ -1,11 +1,12 @@
 """Core GT seat-checking logic — library form (no CLI)."""
 
+import html
 import json
 import os
 import re
 import ssl
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from urllib.request import Request, urlopen
 
 CRAWLER_URL = "https://gt-scheduler.github.io/crawler-v2/{term}.json"
@@ -40,11 +41,25 @@ _CTX = _ssl_context()
 # ---------------------------------------------------------------------------
 
 @dataclass
+class Meeting:
+    days: str
+    start: str
+    end: str
+    room: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
 class Section:
     crn: str
     course_id: str
     section_id: str
     course_name: str
+    credits: float = 0
+    meetings: list = field(default_factory=list)
+    parent_id: "str | None" = None
 
 
 @dataclass
@@ -82,9 +97,34 @@ def normalize_course_id(course_id: str) -> str:
     return re.sub(r"([A-Z]+)(\d)", r"\1 \2", s)
 
 
+def _decode_period(period_str: "str | None") -> tuple[str, str]:
+    if not period_str or period_str == "TBA" or " - " not in period_str:
+        return "TBA", "TBA"
+    start, end = period_str.split(" - ")
+    fmt = lambda t: f"{t[:2]}:{t[2:]}" if len(t) == 4 else t
+    return fmt(start), fmt(end)
+
+
+def _parent_section_id(section_id: str, credits: float, credits_by_id: dict) -> "str | None":
+    """GT convention: a 0-credit section (lab/recitation) is tied to the
+    lecture whose id is its digit-stripped prefix, when that lecture exists
+    and carries the actual credit hours. Sections that don't fit this exact
+    pattern (e.g. alternate FA*/GR*/O* families) are left unlinked rather
+    than guessed — a wrong pairing costs a real registration attempt."""
+    if credits != 0:
+        return None
+    stripped = section_id.rstrip("0123456789")
+    if stripped == section_id or stripped not in credits_by_id:
+        return None
+    if credits_by_id[stripped] <= 0:
+        return None
+    return stripped
+
+
 def discover_sections(term: str, course_ids: list[str]) -> tuple[list[Section], list[str]]:
     """Returns (sections, warnings)."""
     data = fetch_term_data(term)
+    periods = data.get("caches", {}).get("periods", [])
     courses_data = data.get("courses", {})
     sections: list[Section] = []
     warnings: list[str] = []
@@ -100,19 +140,42 @@ def discover_sections(term: str, course_ids: list[str]) -> tuple[list[Section], 
             warnings.append(msg)
             continue
 
-        full_name = entry[0]
+        full_name = html.unescape(entry[0])
         sections_dict = entry[1] if len(entry) > 1 else {}
         if not isinstance(sections_dict, dict):
             continue
 
-        for section_id, section_tuple in sections_dict.items():
-            if section_tuple and isinstance(section_tuple, (list, tuple)):
-                sections.append(Section(
-                    crn=str(section_tuple[0]),
-                    course_id=normalized,
-                    section_id=section_id,
-                    course_name=full_name,
-                ))
+        credits_by_id = {
+            sid: tup[2] for sid, tup in sections_dict.items()
+            if tup and isinstance(tup, (list, tuple)) and len(tup) > 2
+        }
+
+        for section_id, tup in sections_dict.items():
+            if not (tup and isinstance(tup, (list, tuple))):
+                continue
+
+            crn = str(tup[0])
+            raw_meetings = tup[1] if len(tup) > 1 else []
+            credits = tup[2] if len(tup) > 2 else 0
+
+            meetings: list[Meeting] = []
+            for m in (raw_meetings or []):
+                if not m:
+                    continue
+                period_idx, days, room = m[0], m[1], m[2]
+                period_str = periods[period_idx] if isinstance(period_idx, int) and 0 <= period_idx < len(periods) else None
+                start, end = _decode_period(period_str)
+                meetings.append(Meeting(days=days, start=start, end=end, room=room))
+
+            sections.append(Section(
+                crn=crn,
+                course_id=normalized,
+                section_id=section_id,
+                course_name=full_name,
+                credits=credits,
+                meetings=meetings,
+                parent_id=_parent_section_id(section_id, credits, credits_by_id),
+            ))
 
     return sections, warnings
 

@@ -34,7 +34,7 @@ Edita `config.json`:
 {
   "ntfy_topic": "gt-alerts-seunome",
   "ntfy_server": "https://ntfy.sh",
-  "term": "202608",
+  "term": "202702",
   "courses": ["CS 1332", "CS 3510"],
   "interval": 60
 }
@@ -59,7 +59,7 @@ python3 check_seats.py
 | `interval` | ❌ | Segundos entre checagens. Padrão: `60` |
 
 **Código do term:** `YYYYSS` onde SS = `02` (Spring) / `05` (Summer) / `08` (Fall).  
-Exemplo: `202608` = Fall 2026, `202502` = Spring 2025.
+Exemplo: `202702` = Spring 2027, `202608` = Fall 2026.
 
 ---
 
@@ -152,7 +152,7 @@ launchctl unload ~/Library/LaunchAgents/com.gt-notifier.plist
 Logs são impressos no stdout em tempo real:
 
 ```
-[INFO] Term: 202608 | Courses: CS 1332, CS 3510
+[INFO] Term: 202702 | Courses: CS 1332, CS 3510
 [INFO] CS 1332 (Data Structures and Algorithms): 12 section(s) found
 [INFO] Monitoring 12 section(s) across 2 course(s)
 

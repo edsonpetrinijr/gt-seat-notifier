@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
-import type { Course } from '@/types'
-import { getCourseStatus } from '@/types'
+import type { Course, Season } from '@/types'
+import { courseStatus, seasonFromTerm } from '@/types'
 import Navbar from '@/components/Navbar'
 import CourseCard from '@/components/CourseCard'
+import WeekCalendar from '@/components/WeekCalendar'
 import AddCourseModal from '@/components/AddCourseModal'
 import SettingsDrawer from '@/components/SettingsDrawer'
 import LoadingSkeleton from '@/components/LoadingSkeleton'
@@ -18,10 +19,11 @@ function Dashboard() {
   const { toast } = useToast()
   const [courses, setCourses]           = useState<Course[]>([])
   const [loading, setLoading]           = useState(true)
-  const [defaultTerm, setDefaultTerm]   = useState('202608')
+  const [defaultSeason, setDefaultSeason] = useState<Season>('fall')
   const [showModal, setShowModal]       = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const prevDataRef = useRef<Record<string, number | null>>({})
+  const [view, setView]                 = useState<'cards' | 'week'>('cards')
+  const prevOpenRef = useRef<Record<string, number>>({})
 
   const fetchCourses = useCallback(async (silent = false) => {
     try {
@@ -29,12 +31,11 @@ function Dashboard() {
 
       // Detect newly opened seats
       data.forEach(c => {
-        const prev = prevDataRef.current[c.crn]
-        const curr = c.seatsAvailable
-        if (prev !== undefined && prev !== null && prev === 0 && curr !== null && curr > 0) {
-          toast(`${c.name} — seat opened!`, 'success')
+        const prev = prevOpenRef.current[c.courseId]
+        if (prev !== undefined && prev === 0 && c.openCount > 0) {
+          toast(`${c.courseId} — seat opened!`, 'success')
         }
-        prevDataRef.current[c.crn] = curr
+        prevOpenRef.current[c.courseId] = c.openCount
       })
 
       setCourses(data)
@@ -49,7 +50,7 @@ function Dashboard() {
 
   useEffect(() => {
     fetchCourses()
-    api.getSettings().then(s => setDefaultTerm(s.term)).catch(() => {})
+    api.getSettings().then(s => setDefaultSeason(seasonFromTerm(s.term))).catch(() => {})
 
     const id = setInterval(() => fetchCourses(true), POLL_INTERVAL)
     return () => clearInterval(id)
@@ -57,23 +58,22 @@ function Dashboard() {
 
   function handleAdd(course: Course) {
     setCourses(prev => [...prev, course])
-    prevDataRef.current[course.crn] = course.seatsAvailable
-    toast(`${course.name} added`, 'success')
+    prevOpenRef.current[course.courseId] = course.openCount
+    toast(`${course.courseId} added`, 'success')
   }
 
-  async function handleDelete(crn: string) {
-    const course = courses.find(c => c.crn === crn)
+  async function handleDelete(courseId: string) {
     try {
-      await api.deleteCourse(crn)
-      setCourses(prev => prev.filter(c => c.crn !== crn))
-      delete prevDataRef.current[crn]
-      toast(`${course?.name ?? crn} removed`, 'info')
+      await api.deleteCourse(courseId)
+      setCourses(prev => prev.filter(c => c.courseId !== courseId))
+      delete prevOpenRef.current[courseId]
+      toast(`${courseId} removed`, 'info')
     } catch {
       toast('Failed to remove course', 'error')
     }
   }
 
-  const openCount = courses.filter(c => getCourseStatus(c) === 'OPEN').length
+  const openCount = courses.filter(c => courseStatus(c) === 'OPEN').length
 
   return (
     <div className="min-h-screen bg-bg">
@@ -116,27 +116,51 @@ function Dashboard() {
                 </div>
               </div>
 
-              <button
-                onClick={() => fetchCourses()}
-                className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
-              >
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="opacity-60">
-                  <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 3 1.3L10 2v4H6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Refresh
-              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-0.5 bg-surface-2 rounded-lg p-0.5 border border-[rgba(99,102,241,0.1)]">
+                  <button
+                    onClick={() => setView('cards')}
+                    className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                      view === 'cards' ? 'bg-surface text-slate-200' : 'text-slate-600 hover:text-slate-400'
+                    }`}
+                  >
+                    Cards
+                  </button>
+                  <button
+                    onClick={() => setView('week')}
+                    className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
+                      view === 'week' ? 'bg-surface text-slate-200' : 'text-slate-600 hover:text-slate-400'
+                    }`}
+                  >
+                    Week
+                  </button>
+                </div>
+                <button
+                  onClick={() => fetchCourses()}
+                  className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                >
+                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="opacity-60">
+                    <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 3 1.3L10 2v4H6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Refresh
+                </button>
+              </div>
             </div>
 
-            {/* Course grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {courses.map(course => (
-                <CourseCard
-                  key={course.crn}
-                  course={course}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
+            {view === 'week' ? (
+              <WeekCalendar courses={courses} />
+            ) : (
+              /* Course grid */
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {courses.map(course => (
+                  <CourseCard
+                    key={course.courseId}
+                    course={course}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            )}
           </>
         )}
       </main>
@@ -144,7 +168,7 @@ function Dashboard() {
       {/* Modals */}
       {showModal && (
         <AddCourseModal
-          defaultTerm={defaultTerm}
+          defaultSeason={defaultSeason}
           onAdd={handleAdd}
           onClose={() => setShowModal(false)}
         />

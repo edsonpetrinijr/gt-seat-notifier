@@ -1,7 +1,7 @@
 {
   "ntfy_topic": "gt-alerts-seunome",
   "ntfy_server": "https://ntfy.sh",
-  "term": "202608",
+  "term": "202702",
   "courses": [
     "CS 1332",
     "CS 3510",

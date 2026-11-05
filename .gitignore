@@ -6,3 +6,4 @@ node_modules/
 config.json
 backend/settings.json
 backend/courses.json
+*.tsbuildinfo
